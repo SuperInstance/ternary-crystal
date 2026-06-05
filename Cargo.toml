@@ -1,0 +1,8 @@
+[package]
+name = "ternary-crystal"
+version = "0.1.0"
+edition = "2021"
+description = "Crystallography and lattice symmetry in ternary space — point groups, space groups, Brillouin zones"
+license = "MIT"
+
+[dependencies]
