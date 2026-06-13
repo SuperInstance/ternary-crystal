@@ -1,73 +1,143 @@
-# ternary-crystal
+# Ternary Crystal
 
-**Crystallography in three-valued space. Point groups, Brillouin zones, and the structure of ternary lattices.**
+Crystallography and **lattice symmetry in ternary space** — point groups, space groups, Brillouin zones, and diffraction patterns for ternary {-1, 0, +1} lattices. All operations use modular arithmetic modulo 3 (GF(3)), making the ternary lattice a natural object for group-theoretic analysis.
 
-A crystal is a periodic arrangement of atoms. In real crystallography, atoms sit at real-valued positions and symmetry groups are continuous. But what happens when the lattice is ternary — every coordinate is {-1, 0, +1}?
+## Why It Matters
 
-The answer: the symmetry groups collapse to finite, computable sets. Instead of infinite rotational symmetry, you get C3 (120° rotations). Instead of continuous point groups, you get a handful of discrete operations. The Brillouin zone shrinks to exactly 27 points. Diffraction patterns become exact arithmetic. Everything becomes *computable by hand*.
+Classical crystallography uses real-valued coordinates with 230 space groups and 32 point groups. A ternary lattice — where every coordinate is in {0, 1, 2} (mod 3) — is a finite geometry with exactly $3^3 = 27$ points per unit cell. This radically constrains the symmetry landscape:
 
-This crate implements the full crystallographic pipeline for ternary space: lattice points with mod-3 arithmetic, point groups (C1, C3i, Oh), unit cells (simple cubic, body-centered), Brillouin zones, structure factors, and Burnside's lemma for counting distinct crystal structures modulo symmetry.
+- **Finite group orders**: Every symmetry group acts on at most 27 points
+- **GF(3) arithmetic**: Dot products, distances, and structure factors use modular arithmetic
+- **Clean enumeration**: Burnside's lemma gives exact orbit counts
 
-## What's Inside
+The ternary lattice is not just a mathematical curiosity — it models discrete structures where ternary {-1, 0, +1} values represent material properties (e.g., spin states, charge configurations, compositional ordering in high-entropy alloys).
 
-- **`LatticePoint`** — a 3D point in Z₃³ with mod-3 dot product and ternary distance
-- **`SymmetryOp`** — identity, inversion, C3 rotation, mirror
-- **`PointGroup`** — C1, C3i, and Oh (full cubic) symmetry groups
-- **`UnitCell`** — simple cubic and body-centered ternary cells
-- **`brillouin_zone(lattice)`** — the Wigner-Seitz cell in reciprocal space
-- **`structure_factor(cell, q)`** — diffraction intensity at scattering vector q
-- **`count_orbits(group, size)`** — Burnside's lemma: how many distinct structures?
+## How It Works
 
-## Quick Example
+### Lattice Points
+
+Every point lives in $\mathbb{Z}_3^3$ — coordinates modulo 3:
+
+$$(x, y, z) \in (\mathbb{Z}/3\mathbb{Z})^3$$
+
+Construction normalizes: `LatticePoint::new(x, y, z)` applies `((x % 3) + 3) % 3` to each coordinate.
+
+### Distance Metric
+
+The ternary distance between points is:
+
+$$d(\mathbf{a}, \mathbf{b}) = \sum_{i=1}^{3} \min(|a_i - b_i|, \; 3 - |a_i - b_i|)$$
+
+This wraps around: the distance from 0 to 2 is $\min(2, 1) = 1$, not 2 — because in a ternary ring, 2 ≡ -1.
+
+### Dot Product (mod 3)
+
+$$\mathbf{a} \cdot \mathbf{b} = \left(\sum_{i=1}^{3} a_i b_i\right) \bmod 3$$
+
+### Symmetry Operations
+
+| Operation | Action on (x, y, z) |
+|-----------|---------------------|
+| Identity | (x, y, z) |
+| Inversion | (-x, -y, -z) |
+| C₃ rotation (axis z) | (y, -x, z) |
+| Mirror (⊥ to x) | (-x, y, z) |
+
+A point is **fixed** by an operation if applying the operation yields the same point (mod 3).
+
+### Burnside's Lemma
+
+The number of distinct crystal structures (orbits) under a group $G$ acting on the lattice is:
+
+$$|\text{Orbits}| = \frac{1}{|G|} \sum_{g \in G} |\text{Fix}(g)|$$
+
+where $|\text{Fix}(g)|$ is the number of lattice points fixed by operation $g$. For the trivial group C₁ acting on a size-2 lattice: $|G| = 1$, $|\text{Fix}(e)| = 2^3 = 8$ orbits.
+
+### Structure Factor
+
+For diffraction from a unit cell with basis $\{r_j\}$ at scattering vector $\mathbf{q}$:
+
+$$F(\mathbf{q}) = \sum_{j} e^{2\pi i \mathbf{q} \cdot \mathbf{r}_j / 3} \pmod{3}$$
+
+In GF(3), the exponential maps to powers of the primitive 3rd root of unity $\omega = e^{2\pi i/3}$. The structure factor is the phase sum modulo 3.
+
+### Complexity
+
+| Operation | Time |
+|-----------|------|
+| `LatticePoint::dot(&other)` | O(1) |
+| `SymmetryOp::apply(&point)` | O(1) |
+| `PointGroup::fixed_point_count(n)` | O(G · n³) |
+| `brillouin_zone(&lattice)` | O(27 · 3) = O(1) |
+| `structure_factor(&cell, &q)` | O(B) — B = basis atoms |
+| `count_orbits(&group, n)` | O(G · n³) |
+
+Where G = group order, n = lattice linear size.
+
+## Quick Start
 
 ```rust
-use ternary_crystal::*;
+use ternary_crystal::{LatticePoint, SymmetryOp, PointGroup, UnitCell, brillouin_zone, structure_factor, count_orbits};
 
-// Body-centered cubic ternary cell
-let cell = UnitCell::body_centered();
-let points = cell.generate(1);
+// Create lattice points (coordinates are mod 3)
+let p = LatticePoint::new(1, -1, 2);
+assert_eq!(p.coords, [1, 2, 2]); // -1 mod 3 = 2
 
-// Diffraction pattern
+// Apply symmetry
+let inverted = SymmetryOp::Inversion.apply(&p);
+let rotated  = SymmetryOp::C3(2).apply(&p); // 120° around z
+
+// Point groups
+let group = PointGroup::ternary_cubic(); // Full cubic group
+let fixed = group.fixed_point_count(3);  // Points fixed by ALL operations
+
+// Unit cells
+let sc = UnitCell::simple_cubic();   // 1 basis atom
+let bcc = UnitCell::body_centered();  // 2 basis atoms
+
+// Diffraction
 let q = LatticePoint::new(1, 1, 1);
-let sf = structure_factor(&cell, &q);
-println!("Structure factor at (1,1,1): {}", sf);
+let sf = structure_factor(&bcc, &q); // Structure factor at q
 
-// How many distinct structures under Oh symmetry?
-let group = PointGroup::ternary_cubic();
-let orbits = count_orbits(&group, 3);
-println!("Distinct orbits: {}", orbits);
+// Brillouin zone
+let lattice = [
+    LatticePoint::new(1, 0, 0),
+    LatticePoint::new(0, 1, 0),
+    LatticePoint::new(0, 0, 1),
+];
+let bz = brillouin_zone(&lattice);
+
+// Count distinct structures (Burnside's lemma)
+let orbits = count_orbits(&PointGroup::c1(), 2); // 2³ = 8 orbits under identity
 ```
 
-## The Deeper Truth
+## API
 
-**Ternary crystallography is crystallography stripped to its algebraic bones.** The 230 space groups of real crystals reduce to a small handful of ternary groups. The continuous Brillouin zone becomes 27 discrete points. Structure factors — which in real crystals involve complex exponentials evaluated at real-valued scattering vectors — become simple dot products modulo 3.
+| Type/Function | Description |
+|---------------|-------------|
+| `LatticePoint` | 3D point in (Z/3Z)³ |
+| `SymmetryOp` | Enum: Identity, Inversion, C₃(axis), Mirror(axis) |
+| `PointGroup` | Named symmetry group (C₁, C₃ᵢ, Oₕ) |
+| `UnitCell` | Basis atoms + lattice vectors |
+| `brillouin_zone(&lattice)` | Wigner-Seitz cell in reciprocal space |
+| `structure_factor(&cell, &q)` | Diffraction intensity (mod 3) |
+| `count_orbits(&group, size)` | Distinct structures via Burnside |
 
-Burnside's lemma, which counts the number of distinct colorings of a lattice under symmetry operations, becomes exact and trivial. In real crystallography, this is a hard combinatorial problem. In ternary, you just enumerate: for each symmetry operation, count the fixed points, average. Done.
+## Architecture Notes
 
-The structure factor `F(q) = Σ exp(2πi q·r/3)` over atoms at positions r. In ternary, the exponential takes only 3 values (1, ω, ω²) where ω is the cube root of unity. The structure factor is a sum of third roots of unity. This means: F(q) can be 0 (extinction), 1 (constructive), or ω/ω² (partial). Extinctions in real crystals — systematic absences in diffraction patterns — have an exact ternary analog.
+The ternary crystal models the **γ + η = C** conservation principle through group theory:
 
-**Use cases:**
-- **Education** — the simplest possible crystallography, everything computable by hand
-- **Ternary lattice design** — enumerate distinct ternary crystal structures
-- **Diffraction simulation** — exact diffraction patterns for ternary lattices
-- **Symmetry analysis** — point groups and orbit counting for discrete lattices
-- **Agent coordination** — crystal symmetry as a metaphor for fleet organization
+- **γ (structure)**: the lattice — the periodic arrangement of ternary values
+- **η (dynamics)**: symmetry operations that transform the lattice while preserving structure
+- **C (conservation)**: the orbit count — the number of genuinely distinct configurations is invariant under relabeling, and Burnside's lemma computes this exactly
 
-## See Also
+The GF(3) arithmetic ensures that all operations stay within the ternary domain — there is no leakage to other number systems. The lattice is closed, complete, and finite per unit cell.
 
-- **ternary-lattice** — lattice structures and tiling
-- **ternary-ring** — algebraic ring structure (Z₃ arithmetic)
-- **ternary-matrix** — matrix operations over Z₃
-- **ternary-sheaf** — sheaf cohomology for data on lattices
-- **ternary-topology** — topological analysis of discrete structures
-- **ternary-quantum** — quantum mechanics shares crystallographic structure
+## References
 
-## Install
+- Weyl, H. (1952). *Symmetry*. Princeton University Press.
+- Burns, G. & Glazer, A.M. (2013). *Space Groups for Solid State Scientists* (3rd ed.). Academic Press.
+- Lidl, R. & Niederreiter, H. (1997). *Finite Fields* (2nd ed.). Cambridge — GF(3) arithmetic.
+- Bravais, A. (1850). *Mémoire sur les systèmes formés par les points distribués régulièrement sur un plan ou dans l'espace*. — Original lattice classification.
 
-```bash
-cargo add ternary-crystal
-```
-
-## License
-
-MIT
+## License: MIT
